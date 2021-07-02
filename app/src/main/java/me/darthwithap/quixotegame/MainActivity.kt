@@ -1,66 +1,121 @@
 package me.darthwithap.quixotegame
 
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import androidx.appcompat.app.AppCompatActivity
+import android.animation.ObjectAnimator
+import android.annotation.SuppressLint
 import android.os.Bundle
-import android.util.Log
-import androidx.core.content.getSystemService
-import kotlin.math.acos
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
-
-private const val TAG = "MainActivity"
+import android.view.View
+import android.view.animation.Animation
+import android.view.animation.LinearInterpolator
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.ViewModelProvider
+import me.darthwithap.quixotegame.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var sensorManager: SensorManager
-    private lateinit var accelerometerSensor: Sensor
-    private lateinit var accelerometerSensorEventListener: SensorEventListener
+    private lateinit var viewModel: MainViewModel
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var animator: ObjectAnimator
+    private val start = 0f
+    private val end = 360f
+    private var isAnimating = false
+    private var isPaused = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
 
-        sensorManager = getSystemService()!!
-        accelerometerSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-
-        accelerometerSensorEventListener = object : SensorEventListener {
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-            override fun onSensorChanged(event: SensorEvent?) {
-                val g = event?.values?.clone()
-                val normalization = g?.let {
-                    sqrt((it[0] * it[0] + it[1] * it[1] + it[2] * it[2]).toDouble())
+        viewModel = ViewModelProvider(this).get(MainViewModel::class.java)
+        viewModel.inclinationLiveData.observe({ lifecycle }) {
+            it?.let {
+                binding.tvInclination.text = it.toString()
+                // HORIZONTAL CASE (On a Flat surface)
+                if (it < 15 || it > 165) {
+                    enableButtons()
+                    if (isPaused) resumeAnimatingArrow()
+                    if (!isAnimating) startAnimatingArrow()
                 }
-                normalization?.let {
-                    g[0] /= it.toFloat()
-                    g[1] /= it.toFloat()
-                    g[2] /= it.toFloat()
+                // VERTICAL CASE (Perpendicular to Flat Surface)
+                else if (it in (80..100)) {
+                    disableButtons()
+                    cancelAnimatingArrow()
+                    binding.ivArrow.rotation = 270f
+                } else {
+                    disableButtons()
+                    pauseAnimatingArrow()
+                    resumeAnimatingArrow()
+                    pauseAnimatingArrow()
                 }
-                val inclination =
-                    g?.get(2)?.toDouble()?.let { acos(it) }?.let { Math.toDegrees(it).roundToInt() }
-                Log.d(TAG, "onSensorChanged: x: ${g?.get(0)}")
-                Log.d(TAG, "onSensorChanged: x: ${g?.get(1)}")
-                Log.d(TAG, "onSensorChanged: x: ${g?.get(2)}")
-
-                Log.d(TAG, "onSensorChanged: Inclination: $inclination")
             }
+        }
+        initAnimator()
+        setContentView(binding.root)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun getTouchListener(rotationAngle: Float): View.OnTouchListener {
+        return object : TouchListener() {
+            override fun onSingleTouch() {
+                animator.pause()
+                binding.ivArrow.rotation = rotationAngle
+            }
+
+            override fun onDoubleTouch() {
+                animator.pause()
+                binding.ivArrow.rotation = rotationAngle + 180f
+            }
+
+            override fun onRelease() {
+                resumeAnimatingArrow()
+            }
+
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        sensorManager.registerListener(
-            accelerometerSensorEventListener,
-            accelerometerSensor,
-            1000 * 1000 * 2
-        )
+    @SuppressLint("ClickableViewAccessibility")
+    private fun enableButtons() {
+        with(binding) {
+            btnTopLeft.setOnTouchListener(getTouchListener(240f))
+            btnTopRight.setOnTouchListener(getTouchListener(295f))
+            btnBottomRight.setOnTouchListener(getTouchListener(60f))
+            btnBottomLeft.setOnTouchListener(getTouchListener(115f))
+        }
     }
 
-    override fun onPause() {
-        super.onPause()
-        sensorManager.unregisterListener(accelerometerSensorEventListener, accelerometerSensor)
+    @SuppressLint("ClickableViewAccessibility")
+    private fun disableButtons() {
+        with(binding) {
+            btnTopLeft.setOnTouchListener(null)
+            btnTopRight.setOnTouchListener(null)
+            btnBottomRight.setOnTouchListener(null)
+            btnBottomLeft.setOnTouchListener(null)
+        }
+    }
+
+    private fun initAnimator() {
+        animator = ObjectAnimator.ofFloat(binding.ivArrow, View.ROTATION, start, end)
+        animator.apply {
+            duration = 10 * 1000
+            interpolator = LinearInterpolator()
+            repeatCount = Animation.INFINITE
+        }
+    }
+
+    private fun startAnimatingArrow() {
+        isAnimating = true
+        animator.start()
+    }
+
+    private fun pauseAnimatingArrow() {
+        isPaused = true
+        animator.pause()
+    }
+
+    private fun resumeAnimatingArrow() {
+        isPaused = false
+        animator.resume()
+    }
+
+    private fun cancelAnimatingArrow() {
+        isAnimating = false
+        animator.cancel()
     }
 }
